@@ -2,6 +2,7 @@
 
 ## 2026-04-21
 
+- docs: add Lan Mouse and hypridle idle timer documentation with ordering gotcha
 - Add Intel apply/revert SSH scripts, Waybar tray/icon-size automation, and README docs for new-setup Chromium and customization workflow
 
 ## 2026-04-19

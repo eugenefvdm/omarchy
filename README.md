@@ -96,6 +96,11 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
 - [About application icons in the Waybar](#about-application-icons-in-the-waybar)
 - [Waybar tray expander](#waybar-tray-expander)
 - [Waybar font size](#waybar-font-size)
+- [Lan Mouse](#lan-mouse)
+  - [Adding another machine to the right](#adding-another-machine-to-the-right)
+- [Idle timers (hypridle)](#idle-timers-hypridle)
+  - [DPMS vs screensaver](#dpms-vs-screensaver)
+  - [Changing a timer](#changing-a-timer)
 
 ### Accessing other Omarchies
 
@@ -336,6 +341,147 @@ Unified diff (as captured, 2026-04-19):
 -}
 ```
 
+### Lan Mouse
+
+[**Lan Mouse**](https://github.com/feschber/lan-mouse) shares one keyboard and mouse across machines on the LAN: move the cursor off an edge of one screen and it appears on the next. Each host runs the `lan-mouse` daemon and lists its **neighbours** in `~/.config/lan-mouse/config.toml`. The default transport is **UDP/TCP 4242** (already opened in [Firewall](#firewall) on the Intel host).
+
+**Current setup** (Mac `.112` on the **left**, Intel `.125` on the **right**):
+
+| Host | `~/.config/lan-mouse/config.toml` | Meaning |
+| --- | --- | --- |
+| **`192.168.1.112`** (Mac, this machine) | `[client.right]` → `hostname = "192.168.1.125"`, `port = 4242`, `pos = "right"` | Pushing the cursor off the **right** edge here lands on `.125`. |
+| **`192.168.1.125`** (Intel) | `[client.left]` → `hostname = "192.168.1.112"`, `port = 4242`, `pos = "left"` | Pushing the cursor off the **left** edge there returns to `.112`. |
+
+The TOML on this machine, verbatim:
+
+```toml
+[client.right]
+  hostname = "192.168.1.125"
+  port = 4242
+  pos = "right"
+```
+
+The two sides are **mirror images**: each host names the other as a neighbour and gives the **edge of its own screen** that crosses to it. Reload the daemon (or toggle it from the Lan Mouse tray/UI) after editing.
+
+#### Adding another machine to the right
+
+Lan Mouse lets a host hold **one neighbour per edge** (`left`, `right`, `top`, `bottom`)—`.112` already uses **`right`** for `.125`. To extend the chain so a **third** Omarchy box (call it `192.168.1.130`) sits **further right**, put it on the **right edge of `.125`** (and mirror it back). The cursor then travels `.112` → `.125` → `.130` and back.
+
+**1. On `192.168.1.125`** — append a right neighbour pointing at the new host (keep the existing `[client.left]` block untouched):
+
+```toml
+[client.left]
+  hostname = "192.168.1.112"
+  port = 4242
+  pos = "left"
+
+[client.right]
+  hostname = "192.168.1.130"
+  port = 4242
+  pos = "right"
+```
+
+**2. On `192.168.1.130`** (the new host) — install Lan Mouse, then mirror `.125` as the **left** neighbour:
+
+```toml
+[client.left]
+  hostname = "192.168.1.125"
+  port = 4242
+  pos = "left"
+```
+
+**3. Open the port** on the new host (UFW, mirroring [Firewall](#firewall)):
+
+```bash
+sudo ufw allow 4242/tcp
+sudo ufw allow 4242/udp
+```
+
+**4. Restart Lan Mouse** on `.125` and `.130` (toggle from the tray/UI, or `systemctl --user restart lan-mouse` if you run it as a user service). Test by sliding the cursor off the right edge of `.125`—it should appear on `.130`; coming back, off the left edge of `.130` returns to `.125`, and from there left again to `.112`.
+
+**Notes**
+
+- Hostnames can be **IPs** (as above) or DNS names; IPs are simplest on a home LAN and survive `mDNS` quirks.
+- `pos` is the edge **on the host you're editing**, not on the neighbour. Mismatched edges (both sides claim `"right"`) will not connect cleanly.
+- To put the new machine **directly to the right of `.112`** instead of chaining, you'd have to **replace** `.112`'s existing `[client.right]` (it's the only `right` slot)—the chained layout above is the natural way to extend the current setup without disturbing `.125`.
+
+### Idle timers (hypridle)
+
+Omarchy runs **[`hypridle`](https://wiki.hypr.land/Hypr-Ecosystem/hypridle/)** to react to **idle time** (no keyboard / pointer input). Config: **`~/.config/hypr/hypridle.conf`**; started from **`~/.config/hypr/autostart.conf`**. Each `listener { … }` block has a `timeout` in **seconds** and an `on-timeout` command; timers count from the **last input**.
+
+**See current timers:**
+
+```bash
+grep -nE 'timeout|on-timeout' ~/.config/hypr/hypridle.conf
+```
+
+**Listeners on this machine** (matches stock Omarchy after the experiment below was reverted):
+
+| Purpose | `on-timeout` | Value |
+| --- | --- | --- |
+| **Screen power off (DPMS)** | `hyprctl dispatch dpms off` | `330` s (**5.5 min**) |
+| Keyboard backlight off ×2 | `brightnessctl … kbd_backlight … set 0` | `330` s (5.5 min) |
+| **Screensaver** | `pidof hyprlock \|\| omarchy-launch-screensaver` | `900` s (**15 min**) |
+| Lock session (commented out) | `loginctl lock-session` | `300` s — disabled in this journal |
+
+#### DPMS vs screensaver
+
+These are **two different things**:
+
+- **DPMS** (*Display Power Management Signaling*) is a **hardware** power command the compositor sends to the monitor: `hyprctl dispatch dpms off` puts the panel to sleep (backlight off, electronics idle). Nothing is drawn — the screen is physically dark.
+- **Omarchy's screensaver** is a **userland program** — `omarchy-launch-screensaver` opens a fullscreen terminal (`Alacritty` / `Ghostty` / `Kitty`) running `omarchy-cmd-screensaver` (a `tte` text-effects animation), window class `org.omarchy.screensaver`. It draws pixels; it does **not** touch monitor power.
+
+With stock ordering (**DPMS 5.5 min, screensaver 15 min**) the monitor goes dark first; the screensaver later fires into an off panel so you never see it in everyday use. On wake (`dpms on`) the panel comes back and any running screensaver is visible for a moment before input dismisses it. This is why "leave the box for a while, come back, screen is off" works — DPMS is what you actually feel.
+
+**Gotcha — do not invert the order.** On this host, making the screensaver fire **before** DPMS (e.g. screensaver at 60 s, DPMS at 120 s) caused DPMS to never fire at all: verbose `hypridle -v` showed the screensaver rule idled and ran `omarchy-launch-screensaver`, but no `Idled` event ever arrived for the DPMS rule — the screensaver's fullscreen activation appears to prevent `ext_idle_notifier_v1` from reporting the later idle threshold. Keep DPMS short and screensaver long (or just leave stock).
+
+#### Changing a timer
+
+Workflow — backup, **context-aware edit** (so the three identical `timeout = 330` blocks aren't all changed), restart `hypridle`.
+
+**1. Backup and edit.** Use a marker phrase from the listener's `on-timeout` to target the right block. Examples:
+
+```bash
+cp ~/.config/hypr/hypridle.conf \
+   ~/.config/hypr/hypridle.conf.bak.$(date +%Y%m%d-%H%M%S)
+
+sed -i -E '/timeout = 900/{N
+/omarchy-launch-screensaver/s/timeout = 900/timeout = <NEW>/
+}' ~/.config/hypr/hypridle.conf
+
+sed -i -E '/timeout = 330/{N
+/hyprctl dispatch dpms off/s/timeout = 330/timeout = <NEW>/
+}' ~/.config/hypr/hypridle.conf
+```
+
+The `N` appends the next line into `sed`'s pattern space so the substitution only fires when `timeout = X` is immediately followed by the marker `on-timeout` — the `kbd_backlight` blocks (same `330`) are left untouched.
+
+**2. Restart `hypridle` inside the Hyprland session** (so it inherits `WAYLAND_DISPLAY` / `HYPRLAND_INSTANCE_SIGNATURE`):
+
+```bash
+pkill hypridle && sleep 1 && hyprctl dispatch exec hypridle
+pgrep -a hypridle
+```
+
+**3. Verify** and test with `date; sleep <NEW+5>; date` while not touching input.
+
+**Revert to the latest backup (any time):**
+
+```bash
+LATEST=$(ls -1t ~/.config/hypr/hypridle.conf.bak.* | head -1)
+cp "$LATEST" ~/.config/hypr/hypridle.conf
+pkill hypridle && sleep 1 && hyprctl dispatch exec hypridle
+grep -nE 'timeout|on-timeout' ~/.config/hypr/hypridle.conf
+```
+
+**Debugging tip.** Run `hypridle -v` to a log file and watch for `Idled: rule <id>` / `Resumed: rule <id>` lines — a missing `Idled` for a rule means the compositor never told that listener to fire (most often an ordering / activity issue like the one above):
+
+```bash
+pkill hypridle && sleep 1
+hyprctl dispatch exec -- sh -c 'exec hypridle -v >/tmp/hypridle.log 2>&1'
+tail -f /tmp/hypridle.log
+```
+
 ## Journal changelog
 
 | Date | Entry |
@@ -362,3 +508,6 @@ Unified diff (as captured, 2026-04-19):
 | 2026-04-19 | [SSH, sudo, and root](#ssh-sudo-and-root): **`ssh`** without **`-t`**; **`pacman`** steps manual as root; no **`sudo`** in remote scripts. |
 | 2026-04-19 | [Omarchy customization scripts](#omarchy-customization-scripts): remote payload in **`scripts/remote/*.sh`**. |
 | 2026-04-19 | [Chromium → New setups](#new-setups-services-chromium-account-and-profiles): **Services** → **Chromium Account**, then **Add** Chromium **profiles**. |
+| 2026-04-21 | [Lan Mouse](#lan-mouse): documented current `.112` ↔ `.125` `left`/`right` setup; [Adding another machine to the right](#adding-another-machine-to-the-right) chains a third host via `.125`. |
+| 2026-04-21 | [Idle timers (hypridle)](#idle-timers-hypridle): inventory of `~/.config/hypr/hypridle.conf` listeners; **screensaver at 60 s verified** (edit + `pkill hypridle && hyprctl dispatch exec hypridle`); DPMS-off at 120 s **did not fire** — investigation pending. |
+| 2026-04-21 | [Idle timers (hypridle)](#idle-timers-hypridle): experiment reverted → **stock values kept** (DPMS `330 s` / **5.5 min**, screensaver `900 s` / **15 min**). [DPMS vs screensaver](#dpms-vs-screensaver): DPMS = hardware monitor off; screensaver = userland fullscreen `tte` terminal. **Ordering gotcha** — inverting to screensaver-first blocks the later DPMS `Idled` event (reproduced with `hypridle -v`); keep DPMS short and screensaver long. |

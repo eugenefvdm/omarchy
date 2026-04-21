@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Apply journal defaults to a host over SSH. See README.md (Waybar font size, pwgen).
+# Apply journal defaults to a fresh Intel Omarchy host over SSH (see README.md).
+# Mac / ARM64 experimentation: document in the journal; do not run this script there.
 set -euo pipefail
 
 usage() {
@@ -10,22 +11,10 @@ usage() {
 [[ ${1-} ]] || usage
 TARGET="$1"
 
-exec ssh -t "$TARGET" bash -s <<'REMOTE'
-set -euo pipefail
-STYLE="${HOME}/.config/waybar/style.css"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REMOTE_BODY="${DIR}/remote/apply-intel.sh"
 
-[[ -f "$STYLE" ]] || { echo "missing: $STYLE" >&2; exit 1; }
+[[ -f "$REMOTE_BODY" ]] || { echo "missing: $REMOTE_BODY" >&2; exit 1; }
 
-if grep -q 'font-size: 12px;' "$STYLE"; then
-  sed -i 's/font-size: 12px;/font-size: 20px;/' "$STYLE"
-  echo "waybar: font-size 12px -> 20px ($STYLE)"
-else
-  echo "waybar: skip (no font-size: 12px; — already applied or edited?)"
-fi
-
-sudo pacman -S --needed --noconfirm pwgen
-echo "pacman: pwgen installed"
-
-pkill -SIGUSR2 waybar 2>/dev/null || pkill waybar 2>/dev/null || true
-echo "waybar: reload signal sent (restart session if bar looks wrong)"
-REMOTE
+# No -t: a TTY + fish as login shell can consume stdin; non-interactive ssh runs bash -s only.
+exec ssh "$TARGET" bash -s <"$REMOTE_BODY"

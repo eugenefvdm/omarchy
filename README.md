@@ -44,10 +44,44 @@ After cloning:
 
 For full framework details, see the [Laravel documentation](https://laravel.com/docs).
 
+## Omarchy customization scripts
+
+**Premise:** you **experiment on the Mac** (AARCH64 Omarchy) and capture what works in this journal. **`apply-`** / **`revert-omarchy-customizations.sh`** are **only for fresh Intel (x86_64) rigs**—bring a new install in line with what you’ve settled on, or roll back. **Do not run them on the Mac.** When native Omarchy on ARM64 is a first-class target, you might shift experimentation there; these scripts stay **Intel / stock-default oriented** until you change them.
+
+Minimal SSH helpers (run from any machine that can SSH to the Intel box):
+
+| Script | Purpose |
+| --- | --- |
+| [`scripts/apply-omarchy-customizations.sh`](scripts/apply-omarchy-customizations.sh) | On the **Intel** host (as your user, over **non-interactive** SSH): Waybar `style.css` **12px → 20px**; **`config.jsonc`**: **`group/tray-expander` → `tray`**, **`tray.icon-size` → 20**; marker file for revert; reload Waybar. **End of run:** prints **`pacman`** lines to run **as root** for **`jq`** + **`pwgen`** (not automated—avoids **`sudo`** / TTY / **fish** issues). |
+| [`scripts/revert-omarchy-customizations.sh`](scripts/revert-omarchy-customizations.sh) | Undo apply on the **same** host (user files only). **End of run:** optional **`pacman -Rs pwgen`** as root if you use that workflow. |
+
+```bash
+./scripts/apply-omarchy-customizations.sh eugene@192.168.1.125
+./scripts/revert-omarchy-customizations.sh eugene@192.168.1.125
+```
+
+Requires **SSH keys** (or your usual auth). Extend the scripts as this journal grows.
+
+### SSH, sudo, and root
+
+- **What the wrappers do:** **`ssh user@host bash -s < scripts/remote/…`** — **no** **`-t`** (no pseudo-terminal). That way **bash** on the remote reads the script from stdin; **`ssh -tt`** was sending stdin to **fish** as if you had pasted the script.
+
+- **What needs root on the Intel host:** **`pacman`** only — install **`jq`** (required before **`config.jsonc`** edits can run) and **`pwgen`** per this journal; optional **`pacman -Rs pwgen`** on revert. The remote scripts **do not** call **`sudo`**; they **print** the exact **`pacman`** lines at the end so you can log in, **elevate to root**, and run them yourself.
+
+- **`Waybar` under `~/.config`** is edited as **your user** — no root for **`sed`** / **`jq`** / **`mv`** there.
+
+- **Do not** run the **local** wrapper as **root** (`sudo ./scripts/apply-...`) — that breaks SSH keys and home directory. Use root **on the remote** only for **`pacman`**.
+
+- **If apply says `jq` not found:** install **`jq`** as root, then re-run **`apply`**.
+
+**Troubleshooting (Intel):** If the **reveal chevron** (often **`<`**) is still there, **`modules-right`** still lists **`group/tray-expander`** (apply never ran, or Omarchy overwrote **`config.jsonc`**)—run **`apply`** again. **Small** third-party tray icons next to large system icons are usually **`tray.icon-size`** (stock **12** on Intel vs **20** in this journal); **`apply`** sets **20** to match the Mac.
+
 ## Documentation
 
 ### Table of contents
 
+- [Omarchy customization scripts](#omarchy-customization-scripts)
+  - [SSH, sudo, and root](#ssh-sudo-and-root)
 - [Lab network](#lab-network-this-repo)
 - [Accessing other Omarchies](#accessing-other-omarchies)
 - [Firewall](#firewall)
@@ -58,7 +92,9 @@ For full framework details, see the [Laravel documentation](https://laravel.com/
     - [AUR votes](#aur-votes)
 - [Additional programs](#additional-programs)
 - [Chromium](#chromium)
+  - [New setups: Services, Chromium account, and profiles](#new-setups-services-chromium-account-and-profiles)
 - [About application icons in the Waybar](#about-application-icons-in-the-waybar)
+- [Waybar tray expander](#waybar-tray-expander)
 - [Waybar font size](#waybar-font-size)
 
 ### Accessing other Omarchies
@@ -190,13 +226,29 @@ Index of optional **pacman** packages we care about; install/check steps live un
 
 ### Chromium
 
+#### New setups: Services, Chromium account, and profiles
+
+On a **fresh** Omarchy machine, work through **Services** in the Omarchy flow (e.g. **Super** + **Shift** + **Space** → **Install** / onboarding) and install **Chromium Account**—the piece that wires Chromium to **Google account** sign-in and related behaviour. Do that **before** you rely on multiple browser identities.
+
+After **Chromium Account** is installed, open Chromium and use the **profile** menu to **Add** extra **Chromium profiles** (work, personal, client, …). Extensions (including **1Password** in the next paragraph) are **per profile**, so separate profiles keep logins and extensions apart.
+
 **Remember:** install the **[1Password](https://chromewebstore.google.com/detail/1password/aeblfdkhhhdcdjpifhhbdiojplfjncoa)** extension in **Chromium** (Chrome Web Store; Chromium supports the same extension). The store may warn that you should use **Chrome**—you can **ignore that** for Chromium.
 
 ### About application icons in the Waybar
 
 **Waybar** is a **status bar** for **Wayland** sessions (Omarchy’s desktop uses it with the compositor—clock, workspaces, tray area, and similar widgets along the edge of the screen).
 
-**Telegram** and **1Password** register **tray / status icons** that show up in Waybar once those apps are running. By default those icons sit in a **collapsed** tray: press **<** to expand it and reveal them.
+**Telegram** and **1Password** register **tray / status icons** that show up in Waybar once those apps are running. By default those icons sit in a **collapsed** tray: press **<** to expand it and reveal them—unless you remove the expander (next section).
+
+### Waybar tray expander
+
+Omarchy’s default **`~/.config/waybar/config.jsonc`** lists **`group/tray-expander`** in **`modules-right`**. That group combines **`custom/expand-icon`** (the **chevron** / reveal control) and **`tray`** in a drawer—the reveal control (often shown as **<**).
+
+**This journal:** drop the drawer and show tray icons all the time by putting **`"tray"`** in **`modules-right`** instead of **`"group/tray-expander"`** (one string swap in that array). Unused `group/tray-expander` / `custom/expand-icon` blocks can stay in the file; Waybar only instantiates what **`modules-right`** references.
+
+**Tray icon size:** the **`tray`** module in **`config.jsonc`** has **`icon-size`** (stock Intel is often **12**). That controls **StatusNotifier** / app tray glyphs (Telegram, Slack, …). This journal uses **20** so those icons **match the bar scale** and the Mac. **`style.css` `font-size`** does **not** resize tray pixmaps—change **`tray.icon-size`** for that.
+
+**Tooling:** `jq` edits JSON safely (`pacman -S jq`). The apply script writes **`~/.config/waybar/.omarchy-tray-expand-removed`**: **line 1** = **`group/tray-expander`** index in **`modules-right`**, or **`-1`** if it was already absent; **line 2** = **`tray.icon-size` before apply** (for revert). Revert restores the expander slot when line 1 is a **non-negative** index, then restores **`tray.icon-size`** from line 2. The install scripts are **Intel-only**—see [Omarchy customization scripts](#omarchy-customization-scripts).
 
 ### Waybar font size
 
@@ -303,3 +355,10 @@ Unified diff (as captured, 2026-04-19):
 | 2026-04-18 | [Slack](#slack): check AUR vote counts when choosing packages (e.g. `slack-desktop` vs `slack-desktop-wayland`). |
 | 2026-04-18 | [Waybar font size](#waybar-font-size): enlarged text while tuning Mac (AARCH64) and Intel; `~/.config/waybar/`. |
 | 2026-04-19 | [Waybar font size](#waybar-font-size): `style.css` diff `.112` (20px + extra `#custom-*`) vs `.125` (12px). |
+| 2026-04-19 | [Omarchy customization scripts](#omarchy-customization-scripts): `apply-` / `revert-omarchy-customizations.sh`. |
+| 2026-04-19 | [Waybar tray expander](#waybar-tray-expander): `modules-right` uses **`tray`** instead of **`group/tray-expander`**; scripts + marker index. |
+| 2026-04-19 | [Omarchy customization scripts](#omarchy-customization-scripts): **Intel-only** apply/revert; Mac = experiment; marker explained for **stock Intel** undo (not Mac). |
+| 2026-04-19 | [Waybar tray expander](#waybar-tray-expander): **`tray.icon-size` 12→20** on Intel; two-line marker; troubleshooting if chevron persists (apply not run / Omarchy reset). |
+| 2026-04-19 | [SSH, sudo, and root](#ssh-sudo-and-root): **`ssh`** without **`-t`**; **`pacman`** steps manual as root; no **`sudo`** in remote scripts. |
+| 2026-04-19 | [Omarchy customization scripts](#omarchy-customization-scripts): remote payload in **`scripts/remote/*.sh`**. |
+| 2026-04-19 | [Chromium → New setups](#new-setups-services-chromium-account-and-profiles): **Services** → **Chromium Account**, then **Add** Chromium **profiles**. |

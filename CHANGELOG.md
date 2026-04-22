@@ -2,6 +2,7 @@
 
 ## 2026-04-22
 
+- chore: add Cursor skills, MCP config, and AGENTS.md with updated test formatting
 - ci: drop PHP 8.3 from test matrix
 - docs: add audio troubleshooting guide and audio-route.sh script for PipeWire sink switching
 - docs: update LAN IPs to static addresses, add TablePlus ARM64 AppImage and static IP pinning guide

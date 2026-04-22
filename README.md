@@ -1,5 +1,50 @@
 # Omarchy workstation journal
 
+## Quick fix: pin static LAN IPs on Arch
+
+If DHCP changed your host IP and your cross-machine setup broke, pin addresses so they stay stable.
+
+Suggested mapping for this lab:
+
+- This machine: `192.168.1.201`
+- Remote Intel machine: `192.168.1.202`
+
+### NetworkManager (nmcli) quick steps
+
+```bash
+# 1) Find your active connection profile name
+nmcli connection show --active
+
+# 2) Set static IPv4 (replace "WiFi" with your profile name)
+sudo nmcli connection modify "WiFi" \
+  ipv4.method manual \
+  ipv4.addresses 192.168.1.201/24 \
+  ipv4.gateway 192.168.1.1 \
+  ipv4.dns "192.168.1.1 1.1.1.1"
+
+# 3) Reconnect that profile
+sudo nmcli connection down "WiFi" && sudo nmcli connection up "WiFi"
+
+# 4) Verify
+ip -4 addr show | rg '192\.168\.1\.201'
+```
+
+Do the same on the other machine with `192.168.1.202/24`.
+
+### LAN Mouse reconfiguration after IP changes
+
+If cursor sharing stops after readdressing, re-register peers:
+
+```bash
+# on .201 (this machine)
+printf 'connect right 192.168.1.202 4242\nactivate 0\n' | lan-mouse -f cli
+
+# on .202 (remote)
+printf 'connect left 192.168.1.201 4242\nactivate 0\n' | lan-mouse -f cli
+```
+
+Then confirm both sides are listening and allowed through firewall (`4242/tcp` + `4242/udp`).
+
 A small Laravel application whose main purpose is **living documentation**: notes from building and running **two Omarchy (Arch-based) workstations**, written clearly enough for future you and for anyone browsing the open-source repo on GitHub. The site’s home route serves the welcome page at `/`; over time that page is meant to read like a table-of-contents journal that mirrors this document.
 
 ## About this repository
@@ -19,8 +64,8 @@ Architecture shows up in real life for **prebuilt binaries**, **containers**, an
 
 | Host | LAN IP | Role |
 | --- | --- | --- |
-| This machine | `192.168.1.112` | Where you run this Laravel app and local checks (AARCH64). |
-| Remote | `192.168.1.125` | Intel Omarchy box—compare via SSH: `ssh eugene@192.168.1.125` |
+| This machine | `192.168.1.201` | Where you run this Laravel app and local checks (AARCH64). |
+| Remote | `192.168.1.202` | Intel Omarchy box—compare via SSH: `ssh eugene@192.168.1.202` |
 
 IPs are home-LAN; they can change with DHCP unless you reserve them on the router.
 
@@ -56,8 +101,8 @@ Minimal SSH helpers (run from any machine that can SSH to the Intel box):
 | [`scripts/revert-omarchy-customizations.sh`](scripts/revert-omarchy-customizations.sh) | Undo apply on the **same** host (user files only). **End of run:** optional **`pacman -Rs pwgen`** as root if you use that workflow. |
 
 ```bash
-./scripts/apply-omarchy-customizations.sh eugene@192.168.1.125
-./scripts/revert-omarchy-customizations.sh eugene@192.168.1.125
+./scripts/apply-omarchy-customizations.sh eugene@192.168.1.202
+./scripts/revert-omarchy-customizations.sh eugene@192.168.1.202
 ```
 
 Requires **SSH keys** (or your usual auth). Extend the scripts as this journal grows.
@@ -80,6 +125,9 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
 
 ### Table of contents
 
+- [Quick fix: pin static LAN IPs on Arch](#quick-fix-pin-static-lan-ips-on-arch)
+  - [NetworkManager (nmcli) quick steps](#networkmanager-nmcli-quick-steps)
+  - [LAN Mouse reconfiguration after IP changes](#lan-mouse-reconfiguration-after-ip-changes)
 - [Omarchy customization scripts](#omarchy-customization-scripts)
   - [SSH, sudo, and root](#ssh-sudo-and-root)
 - [Lab network](#lab-network-this-repo)
@@ -91,6 +139,7 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
   - [Slack](#slack)
     - [AUR votes](#aur-votes)
   - [exfatprogs](#exfatprogs)
+  - [TablePlus (ARM64 AppImage)](#tableplus-arm64-appimage)
 - [Additional programs](#additional-programs)
 - [Chromium](#chromium)
   - [New setups: Services, Chromium account, and profiles](#new-setups-services-chromium-account-and-profiles)
@@ -114,11 +163,11 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
 
 Unlike optional tools such as **`pwgen`**, the **SSH server stack is already part of base Omarchy**: the **`openssh`** package (which provides **`sshd`**) is installed out of the box. What you often need is to **run the daemon**—it may be stopped until you start it.
 
-**From this machine** (e.g. `192.168.1.112`), toward the other host (e.g. `192.168.1.125`):
+**From this machine** (e.g. `192.168.1.201`), toward the other host (e.g. `192.168.1.202`):
 
 ```bash
-ping -c1 192.168.1.125
-ssh -v eugene@192.168.1.125
+ping -c1 192.168.1.202
+ssh -v eugene@192.168.1.202
 ```
 
 - `ping` confirms basic L3 reachability on your network.
@@ -138,11 +187,11 @@ sudo systemctl enable --now sshd.service
 
 If `openssh` were ever missing (unusual on Omarchy), install it with `sudo pacman -S openssh`—the package name is **`openssh`**, not `sshd-server`.
 
-Then retry `ssh eugene@192.168.1.125` from `192.168.1.112`. If **`sshd` is active** but SSH from the LAN still hangs or times out, open **TCP 22** on the server’s host firewall—see **[Firewall](#firewall)**.
+Then retry `ssh eugene@192.168.1.202` from `192.168.1.201`. If **`sshd` is active** but SSH from the LAN still hangs or times out, open **TCP 22** on the server’s host firewall—see **[Firewall](#firewall)**.
 
 ### Firewall
 
-On the **Intel remote** host (`192.168.1.125`), **`ufw` is active**. Inbound **SSH (TCP 22)** was not in the allow list below, so LAN clients could reach the IP but not complete SSH until port **22** is allowed.
+On the **Intel remote** host (`192.168.1.202`), **`ufw` is active**. Inbound **SSH (TCP 22)** was not in the allow list below, so LAN clients could reach the IP but not complete SSH until port **22** is allowed.
 
 **`sudo ufw status` snapshot** (default rules before opening SSH—recorded on that machine):
 
@@ -178,10 +227,10 @@ pacman -Q <pkgname>
 
 Installed → prints the name and version, exit **0**. Missing → *was not found* and exit **non-zero**. On `PATH`: `command -v <name>`.
 
-Remote check (SSH keys to `eugene@192.168.1.125`):
+Remote check (SSH keys to `eugene@192.168.1.202`):
 
 ```bash
-ssh eugene@192.168.1.125 'pacman -Q <pkgname>'
+ssh eugene@192.168.1.202 'pacman -Q <pkgname>'
 ```
 
 Installing through the **Omarchy “Install” UI** is still **`pacman`** for official repo packages—same names and result as the terminal. **AUR** installs (when you use an AUR helper or a UI that targets the AUR) usually **build** the package on your machine or run upstream install scripts—slower, needs build tools, and you should trust the `PKGBUILD`.
@@ -196,10 +245,10 @@ Installing through the **Omarchy “Install” UI** is still **`pacman`** for of
 sudo pacman -S pwgen
 ```
 
-**Intel `192.168.1.125` over SSH:** `sudo` needs a password; use a TTY so the prompt works:
+**Intel `192.168.1.202` over SSH:** `sudo` needs a password; use a TTY so the prompt works:
 
 ```bash
-ssh -t eugene@192.168.1.125 'sudo pacman -S pwgen'
+ssh -t eugene@192.168.1.202 'sudo pacman -S pwgen'
 ```
 
 (Automated non-interactive install from this journal is skipped—remote `sudo` is not passwordless.)
@@ -208,8 +257,8 @@ ssh -t eugene@192.168.1.125 'sudo pacman -S pwgen'
 
 | Host | `pacman -Q pwgen` |
 | --- | --- |
-| `192.168.1.112` | `pwgen 2.08-3` |
-| `192.168.1.125` | not installed until you run the `ssh -t …` install above; then re-check with `ssh eugene@192.168.1.125 'pacman -Q pwgen'`. |
+| `192.168.1.201` | `pwgen 2.08-3` |
+| `192.168.1.202` | not installed until you run the `ssh -t …` install above; then re-check with `ssh eugene@192.168.1.202 'pacman -Q pwgen'`. |
 
 #### telegram-desktop
 
@@ -263,8 +312,32 @@ exfatlabel /dev/sdX1                  # read or set the volume label
 
 | Host | `pacman -Q exfatprogs` |
 | --- | --- |
-| `192.168.1.112` | `exfatprogs 1.3.2-1` |
-| `192.168.1.125` | `exfatprogs 1.3.2-1` |
+| `192.168.1.201` | `exfatprogs 1.3.2-1` |
+| `192.168.1.202` | `exfatprogs 1.3.2-1` |
+
+#### TablePlus (ARM64 AppImage)
+
+TablePlus provides a Linux ARM64 AppImage build, which fits this AARCH64 setup.
+
+Reference download page: [TablePlus Linux Installation](https://tableplus.com/download/linux).
+
+Install (user-local, no system package changes):
+
+```bash
+mkdir -p ~/Apps/TablePlus
+cd ~/Apps/TablePlus
+curl -fL -o TablePlus-aarch64.AppImage \
+  https://tableplus.com/release/linux/arm64/TablePlus-aarch64.AppImage
+chmod +x TablePlus-aarch64.AppImage
+```
+
+Run:
+
+```bash
+~/Apps/TablePlus/TablePlus-aarch64.AppImage
+```
+
+Status in this journal: **confirmed launching successfully on-screen** on this machine.
 
 ### Additional programs
 
@@ -274,6 +347,7 @@ Index of optional **pacman** packages we care about; install/check steps live un
 - **[telegram-desktop](#telegram-desktop)** — Telegram client (`telegram-desktop`).
 - **[Slack](#slack)** — not in core repos; AUR / Flatpak / web.
 - **[exfatprogs](#exfatprogs)** — exFAT userland (`mkfs.exfat`, `fsck.exfat`); cross-platform USB / SD card filesystem.
+- **[TablePlus (ARM64 AppImage)](#tableplus-arm64-appimage)** — GUI DB client via upstream ARM64 AppImage.
 
 ### Chromium
 
@@ -307,9 +381,9 @@ While switching between the **Mac mini (AARCH64)** and the **Intel** Omarchy box
 
 **Where to change it:** `~/.config/waybar/` — most often **`style.css`** (`font-size` on the bar and modules); sometimes **`config`** if fonts are set there. Override Omarchy’s defaults in that directory on each host if you want the same look on both.
 
-**`~/.config/waybar/style.css` compared** (`diff` first file = **`192.168.1.112`**, second = **`192.168.1.125`**):
+**`~/.config/waybar/style.css` compared** (`diff` first file = **`192.168.1.201`**, second = **`192.168.1.202`**):
 
-| | **`192.168.1.112` (Mac, AARCH64)** | **`192.168.1.125` (Intel)** |
+| | **`192.168.1.201` (Mac, AARCH64)** | **`192.168.1.202` (Intel)** |
 | --- | --- | --- |
 | `*` rule `font-size` | **20px** | **12px** |
 | Extra blocks (only on Mac) | `#custom-nightlight`, `#custom-claude`, `#custom-slack`, `#custom-fractal` | — |
@@ -317,14 +391,14 @@ While switching between the **Mac mini (AARCH64)** and the **Intel** Omarchy box
 Reproduce:
 
 ```bash
-diff -u ~/.config/waybar/style.css <(ssh eugene@192.168.1.125 'cat ~/.config/waybar/style.css')
+diff -u ~/.config/waybar/style.css <(ssh eugene@192.168.1.202 'cat ~/.config/waybar/style.css')
 ```
 
 Unified diff (as captured, 2026-04-19):
 
 ```diff
---- style.css (192.168.1.112)
-+++ style.css (192.168.1.125)
+--- style.css (192.168.1.201)
++++ style.css (192.168.1.202)
 @@ -8,7 +8,7 @@
    border-radius: 0;
    min-height: 0;
@@ -395,8 +469,8 @@ Unified diff (as captured, 2026-04-19):
 
 | Host | Live client in the daemon | Meaning |
 | --- | --- | --- |
-| **`192.168.1.112`** (Mac, this machine) | `client 0: 192.168.1.125:4242 (right), active: true` | Pushing the cursor off the **right** edge here lands on `.125`. |
-| **`192.168.1.125`** (Intel) | `client ?: 192.168.1.112:4242 (left), active: true` | Pushing the cursor off the **left** edge there returns to `.112`. |
+| **`192.168.1.201`** (Mac, this machine) | `client 0: 192.168.1.202:4242 (right), active: true` | Pushing the cursor off the **right** edge here lands on `.202`. |
+| **`192.168.1.202`** (Intel) | `client ?: 192.168.1.201:4242 (left), active: true` | Pushing the cursor off the **left** edge there returns to `.201`. |
 
 The two sides are **mirror images**: each host names the other as a neighbour and gives the **edge of its own screen** that crosses to it.
 
@@ -424,7 +498,7 @@ set -euo pipefail
 # Give the daemon a moment to finish initialising its control socket.
 sleep 2
 
-printf 'connect right 192.168.1.125 4242\nactivate 0\n' \
+printf 'connect right 192.168.1.202 4242\nactivate 0\n' \
   | /usr/bin/lan-mouse -f cli >/dev/null 2>&1 || true
 ```
 
@@ -468,7 +542,7 @@ systemctl --user status lan-mouse             # active (running), ExecStartPost 
 ss -tulpn | grep ':4242'                      # UDP 4242 owned by lan-mouse
 journalctl --user -u lan-mouse -n 20          # look for the backends + release bind
 printf '' | timeout 3 lan-mouse -f cli 2>&1 | grep '^client '
-# expected: client 0: 192.168.1.125:4242 (right), ips: [] active: true, dns: {192.168.1.125}
+# expected: client 0: 192.168.1.202:4242 (right), ips: [] active: true, dns: {192.168.1.202}
 ```
 
 A healthy startup log shows:
@@ -484,7 +558,7 @@ A healthy startup log shows:
 | --- | --- | --- |
 | Cursor does not cross off the right edge | `ps -ef \| grep lan-mouse` on **this** host | Start the daemon: `systemctl --user start lan-mouse`. Without it there is no capture side. |
 | Daemon is up but still nothing crosses | `printf '' \| timeout 3 lan-mouse -f cli \| grep '^client '` | If empty or `active: false` → `ExecStartPost` didn't run. Run `~/.local/bin/lan-mouse-apply-clients` manually, or `systemctl --user restart lan-mouse`. |
-| This side OK, cursor arrives but remote ignores it | On the remote: `ss -tulpn \| grep 4242` and `sudo ufw status` | Start `lan-mouse --daemon` on the remote, register **this** host there (`connect left 192.168.1.112 4242` → `activate 0`), and confirm 4242/tcp + 4242/udp open (already open on `.125`). |
+| This side OK, cursor arrives but remote ignores it | On the remote: `ss -tulpn \| grep 4242` and `sudo ufw status` | Start `lan-mouse --daemon` on the remote, register **this** host there (`connect left 192.168.1.201 4242` → `activate 0`), and confirm 4242/tcp + 4242/udp open (already open on `.202`). |
 | Closing the GUI kills crossing | `systemctl --user status lan-mouse` | GUI and daemon are the **same** process if you run plain `lan-mouse`. Use the service above, then use the GUI only for tweaks. |
 | Moving the mouse around does nothing even with service active | `journalctl --user -u lan-mouse -f` while you move | If you see `input-capture-portal … unavailable` **and nothing else**, fall-back backend didn't load — try `--capture-backend layer-shell` or `--capture-backend x11` in `ExecStart=`. |
 
@@ -502,12 +576,12 @@ Lan Mouse lets a host hold **one neighbour per edge** (`left`, `right`, `top`, `
 
 Remember (previous section): on v0.10.x the TOML is documentation, the **live client list comes from `connect` + `activate`**. Keep the TOML in sync for readability *and* encode the same calls in each box's `lan-mouse-apply-clients` helper.
 
-**1. On `192.168.1.125`** — `.125` already has `.112` wired on its **left**; add `.130` as a **second** client on the **right**:
+**1. On `192.168.1.202`** — `.202` already has `.201` wired on its **left**; add `.130` as a **second** client on the **right**:
 
 ```toml
 # ~/.config/lan-mouse/config.toml  (documentation only; globals live at the top of the file)
 [client.left]
-  hostname = "192.168.1.112"
+  hostname = "192.168.1.201"
   port = 4242
   pos = "left"
 
@@ -519,7 +593,7 @@ Remember (previous section): on v0.10.x the TOML is documentation, the **live cl
 
 ```bash
 # ~/.local/bin/lan-mouse-apply-clients on .125
-printf 'connect left 192.168.1.112 4242\nactivate 0\nconnect right 192.168.1.130 4242\nactivate 1\n' \
+printf 'connect left 192.168.1.201 4242\nactivate 0\nconnect right 192.168.1.130 4242\nactivate 1\n' \
   | /usr/bin/lan-mouse -f cli >/dev/null 2>&1 || true
 ```
 
@@ -530,14 +604,14 @@ printf 'connect left 192.168.1.112 4242\nactivate 0\nconnect right 192.168.1.130
 ```toml
 # ~/.config/lan-mouse/config.toml
 [client.left]
-  hostname = "192.168.1.125"
+  hostname = "192.168.1.202"
   port = 4242
   pos = "left"
 ```
 
 ```bash
 # ~/.local/bin/lan-mouse-apply-clients on .130
-printf 'connect left 192.168.1.125 4242\nactivate 0\n' \
+printf 'connect left 192.168.1.202 4242\nactivate 0\n' \
   | /usr/bin/lan-mouse -f cli >/dev/null 2>&1 || true
 ```
 
@@ -773,7 +847,7 @@ systemctl --user daemon-reload
 | 2026-04-18 | [Accessing other Omarchies](#accessing-other-omarchies): Omarchy includes `openssh` by default; `systemctl start sshd` to run the server, `enable --now` for boot. |
 | 2026-04-18 | [Firewall](#firewall): UFW on Intel remote; default rules table; `sudo ufw allow 22/tcp`. |
 | 2026-04-18 | [Installing programs](#installing-programs): `pacman -Q` / `command -v`; `pwgen` on `.112` verified. |
-| 2026-04-18 | SSH key to `eugene@192.168.1.125` works; `pacman -Q pwgen` on `.125` → **not installed** (vs `.112`). |
+| 2026-04-18 | SSH key to `eugene@192.168.1.202` works; `pacman -Q pwgen` on `.202` → **not installed** (vs `.201`). |
 | 2026-04-18 | [Installing programs → pwgen](#pwgen): what it’s for, `pacman -S`, `ssh -t` for remote install; remote install not run by agent (sudo password). |
 | 2026-04-18 | [Chromium](#chromium): install 1Password extension. |
 | 2026-04-18 | [Installing programs → telegram-desktop](#telegram-desktop): Super+Shift+Space, `inst`, Install menu, `telegram-desktop`. |
@@ -797,5 +871,6 @@ systemctl --user daemon-reload
 | 2026-04-22 | [Notifications: do-not-disturb on a schedule](#notifications-do-not-disturb-on-a-schedule): enlarged the Waybar moon icon — split `#custom-notification-silencing-indicator` out of the `font-size: 10px` indicator group into its own block at `font-size: 20px` to match the bar's native `*` size (and the right-side custom icons documented in [Waybar font size](#waybar-font-size)). |
 | 2026-04-22 | [Notification sounds (mako-sounds)](#notification-sounds-mako-sounds): daemonised `~/.local/bin/mako-sounds.sh` as `mako-sounds.service` (`Restart=on-failure`, `After=graphical-session.target`); state + log moved from `/tmp` (wiped on reboot) to **`~/.local/state/mako-sounds/`** (`mako-sounds.log`, `seen`); old `/tmp` log preserved by copy; rewrote `tee` path to rely on systemd's `StandardOutput=append:` instead. Service confirmed `active (running)` at 07:27 SAST. |
 | 2026-04-22 | [Lan Mouse → Running the daemon (not just the UI)](#running-the-daemon-not-just-the-ui): plain `lan-mouse` runs GUI + daemon in one process — closing the window stopped cursor crossing. Packaged Arch build ships no user service. Added `~/.config/systemd/user/lan-mouse.service` (`ExecStart=/usr/bin/lan-mouse --daemon`, `Restart=on-failure`, `After=graphical-session.target`); `active (running)`, UDP `4242` bound. Noted Hyprland falls back from `input-capture-portal` to `layer-shell` (expected). Release combo **`Ctrl+Shift+Super+Alt`**. |
-| 2026-04-22 | [Lan Mouse](#lan-mouse): discovered that on `lan-mouse 0.10.0` the `[client.*]` blocks in `~/.config/lan-mouse/config.toml` are **not** loaded as live peers — CLI REPL returned `no such client: 0` on a fresh daemon. Neighbours must be registered via `connect <edge> <host> <port>` + `activate <id>` (CLI control socket or GUI "Add client"). Added `~/.local/bin/lan-mouse-apply-clients` (pipes those two lines into `lan-mouse -f cli`) and wired it as `ExecStartPost=` on `lan-mouse.service`, so the right-edge peer `192.168.1.125:4242` survives daemon / reboot cycles. Post-start CLI check now reports `client 0: 192.168.1.125:4242 (right), active: true`. Rewrote Lan Mouse section (gotcha box, troubleshooting row, adding-another-machine flow) and left `config.toml` as documentation only with a header comment. |
+| 2026-04-22 | [Lan Mouse](#lan-mouse): discovered that on `lan-mouse 0.10.0` the `[client.*]` blocks in `~/.config/lan-mouse/config.toml` are **not** loaded as live peers — CLI REPL returned `no such client: 0` on a fresh daemon. Neighbours must be registered via `connect <edge> <host> <port>` + `activate <id>` (CLI control socket or GUI "Add client"). Added `~/.local/bin/lan-mouse-apply-clients` (pipes those two lines into `lan-mouse -f cli`) and wired it as `ExecStartPost=` on `lan-mouse.service`, so the right-edge peer `192.168.1.202:4242` survives daemon / reboot cycles. Post-start CLI check now reports `client 0: 192.168.1.202:4242 (right), active: true`. Rewrote Lan Mouse section (gotcha box, troubleshooting row, adding-another-machine flow) and left `config.toml` as documentation only with a header comment. |
+| 2026-04-22 | [Installing programs → TablePlus (ARM64 AppImage)](#tableplus-arm64-appimage): downloaded upstream ARM64 AppImage, made it executable, and confirmed TablePlus launches successfully on-screen on this AARCH64 machine. |
 # omarchy

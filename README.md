@@ -90,6 +90,7 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
   - [telegram-desktop](#telegram-desktop)
   - [Slack](#slack)
     - [AUR votes](#aur-votes)
+  - [exfatprogs](#exfatprogs)
 - [Additional programs](#additional-programs)
 - [Chromium](#chromium)
   - [New setups: Services, Chromium account, and profiles](#new-setups-services-chromium-account-and-profiles)
@@ -97,10 +98,17 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
 - [Waybar tray expander](#waybar-tray-expander)
 - [Waybar font size](#waybar-font-size)
 - [Lan Mouse](#lan-mouse)
+  - [Running the daemon (not just the UI)](#running-the-daemon-not-just-the-ui)
   - [Adding another machine to the right](#adding-another-machine-to-the-right)
 - [Idle timers (hypridle)](#idle-timers-hypridle)
   - [DPMS vs screensaver](#dpms-vs-screensaver)
   - [Changing a timer](#changing-a-timer)
+- [Notifications: do-not-disturb on a schedule](#notifications-do-not-disturb-on-a-schedule)
+  - [Reverting / changing the schedule](#reverting--changing-the-schedule)
+- [Notification sounds (mako-sounds)](#notification-sounds-mako-sounds)
+  - [Log file location](#log-file-location)
+  - [Editing rules](#editing-rules)
+  - [Reverting mako-sounds](#reverting-mako-sounds)
 
 ### Accessing other Omarchies
 
@@ -221,6 +229,43 @@ Each package on the [AUR](https://aur.archlinux.org/) shows a **vote** total (fr
 
 **Example (as of this writing):** **`slack-desktop`** ~**630** votes vs **`slack-desktop-wayland`** ~**16**. Open both package pages and compare votes, last update, and comments before you install.
 
+#### exfatprogs
+
+**[`exfatprogs`](https://github.com/exfatprogs/exfatprogs)** is the Samsung-maintained userland for the **exFAT** filesystem on Linux: `mkfs.exfat` to format, `fsck.exfat` to check / repair, plus `tune.exfat`, `dump.exfat`, `exfatlabel`. Linux can already **read / write** exFAT in-kernel since 5.4, but you need this package to **create** an exFAT volume or check one.
+
+**Why exFAT?** It's the practical filesystem for USB sticks, SD cards, and external drives that need to be **read and written natively on Linux, Windows, and macOS** — no extra drivers anywhere:
+
+| OS | exFAT support |
+| --- | --- |
+| **Linux** | Kernel ≥ 5.4 (read/write); `exfatprogs` for `mkfs` / `fsck`. |
+| **Windows** | Built in since Vista SP1. |
+| **macOS** | Built in since 10.6.5. |
+
+Versus the alternatives: **FAT32** caps single files at **4 GiB**; **NTFS** is awkward on macOS (read-only without third-party drivers); **APFS / HFS+** aren't supported on Windows; **ext4** isn't supported on Windows or macOS.
+
+**Install** (any Omarchy host, local shell):
+
+```bash
+sudo pacman -S exfatprogs
+```
+
+**Common commands:**
+
+```bash
+sudo mkfs.exfat -L MYDISK /dev/sdX1   # format partition as exFAT with label MYDISK
+sudo fsck.exfat /dev/sdX1             # check / repair
+exfatlabel /dev/sdX1                  # read or set the volume label
+```
+
+(Identify `/dev/sdX1` first with `lsblk` — getting the device wrong destroys data.)
+
+**Status in this journal**
+
+| Host | `pacman -Q exfatprogs` |
+| --- | --- |
+| `192.168.1.112` | `exfatprogs 1.3.2-1` |
+| `192.168.1.125` | `exfatprogs 1.3.2-1` |
+
 ### Additional programs
 
 Index of optional **pacman** packages we care about; install/check steps live under **[Installing programs](#installing-programs)**.
@@ -228,6 +273,7 @@ Index of optional **pacman** packages we care about; install/check steps live un
 - **[pwgen](#pwgen)** — password generator CLI.
 - **[telegram-desktop](#telegram-desktop)** — Telegram client (`telegram-desktop`).
 - **[Slack](#slack)** — not in core repos; AUR / Flatpak / web.
+- **[exfatprogs](#exfatprogs)** — exFAT userland (`mkfs.exfat`, `fsck.exfat`); cross-platform USB / SD card filesystem.
 
 ### Chromium
 
@@ -343,33 +389,123 @@ Unified diff (as captured, 2026-04-19):
 
 ### Lan Mouse
 
-[**Lan Mouse**](https://github.com/feschber/lan-mouse) shares one keyboard and mouse across machines on the LAN: move the cursor off an edge of one screen and it appears on the next. Each host runs the `lan-mouse` daemon and lists its **neighbours** in `~/.config/lan-mouse/config.toml`. The default transport is **UDP/TCP 4242** (already opened in [Firewall](#firewall) on the Intel host).
+[**Lan Mouse**](https://github.com/feschber/lan-mouse) shares one keyboard and mouse across machines on the LAN: move the cursor off an edge of one screen and it appears on the next. The default transport is **UDP/TCP 4242** (already opened in [Firewall](#firewall) on the Intel host). Version installed here: `lan-mouse 0.10.0`.
 
 **Current setup** (Mac `.112` on the **left**, Intel `.125` on the **right**):
 
-| Host | `~/.config/lan-mouse/config.toml` | Meaning |
+| Host | Live client in the daemon | Meaning |
 | --- | --- | --- |
-| **`192.168.1.112`** (Mac, this machine) | `[client.right]` → `hostname = "192.168.1.125"`, `port = 4242`, `pos = "right"` | Pushing the cursor off the **right** edge here lands on `.125`. |
-| **`192.168.1.125`** (Intel) | `[client.left]` → `hostname = "192.168.1.112"`, `port = 4242`, `pos = "left"` | Pushing the cursor off the **left** edge there returns to `.112`. |
+| **`192.168.1.112`** (Mac, this machine) | `client 0: 192.168.1.125:4242 (right), active: true` | Pushing the cursor off the **right** edge here lands on `.125`. |
+| **`192.168.1.125`** (Intel) | `client ?: 192.168.1.112:4242 (left), active: true` | Pushing the cursor off the **left** edge there returns to `.112`. |
 
-The TOML on this machine, verbatim:
+The two sides are **mirror images**: each host names the other as a neighbour and gives the **edge of its own screen** that crosses to it.
 
-```toml
-[client.right]
-  hostname = "192.168.1.125"
-  port = 4242
-  pos = "right"
+> ⚠️ **Lan Mouse 0.10.x gotcha — `config.toml` clients are *not* live clients.**
+> `~/.config/lan-mouse/config.toml` stores **global settings** (port, release bind, etc.). The `[client.*]` blocks look like neighbour definitions, but the **v0.10.0 daemon does not register them as live peers** — the CLI REPL confirms this (`no such client: 0` on a fresh daemon, even with the TOML in place). Neighbours must be registered **via the `connect` command (CLI or GUI "Add client") while the daemon is running**. Losing this leaves the daemon up, UDP `4242` listening, and the cursor stuck at the edge with no crossing and no error. This journal keeps `[client.right]` in `config.toml` as documentation only; the actual wiring is done by `ExecStartPost=` in `lan-mouse.service` — see next section.
+
+#### Running the daemon (not just the UI)
+
+**Trap 1:** launching `lan-mouse` with no arguments starts **GTK frontend + daemon in the same process**. Close the window and the daemon dies — cursor crossing stops and nothing is listening on UDP `4242` anymore.
+
+**Trap 2:** even with the daemon running, **no neighbour is loaded from `config.toml`** on v0.10.0 (see gotcha above). Every time the daemon (re)starts, the client list is empty until something calls `connect …` / `activate 0` on the CLI socket or you click "Add client" in the GUI.
+
+On Omarchy there is **no packaged `lan-mouse.service`** (`pacman -Qlq lan-mouse` only ships `de.feschber.LanMouse.desktop`), so both traps are solved together with one user unit plus a small post-start helper.
+
+**The helper** — re-registers the neighbour on every daemon start:
+
+```bash
+# ~/.local/bin/lan-mouse-apply-clients
+#!/usr/bin/env bash
+# Populate and activate lan-mouse clients in the running daemon.
+# In lan-mouse 0.10.x the TOML [client.*] sections are NOT auto-loaded as live
+# clients; the CLI/GUI "connect" path is. This script runs as ExecStartPost=.
+set -euo pipefail
+
+# Give the daemon a moment to finish initialising its control socket.
+sleep 2
+
+printf 'connect right 192.168.1.125 4242\nactivate 0\n' \
+  | /usr/bin/lan-mouse -f cli >/dev/null 2>&1 || true
 ```
 
-The two sides are **mirror images**: each host names the other as a neighbour and gives the **edge of its own screen** that crosses to it. Reload the daemon (or toggle it from the Lan Mouse tray/UI) after editing.
+```bash
+chmod +x ~/.local/bin/lan-mouse-apply-clients
+```
+
+The CLI REPL speaks to the already-running daemon over its control socket. Known commands (from `help`): `connect left|right|top|bottom <host> [<port>]`, `disconnect <id>`, `activate <id>`, `deactivate <id>`, `set-host <id> <host>`, `set-port <id> <host>`.
+
+**The service** — starts the daemon, then applies clients:
+
+```ini
+# ~/.config/systemd/user/lan-mouse.service
+[Unit]
+Description=Lan Mouse daemon (capture + forward to peers defined in ~/.config/lan-mouse/config.toml)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lan-mouse --daemon
+ExecStartPost=%h/.local/bin/lan-mouse-apply-clients
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+Enable and start:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now lan-mouse.service
+```
+
+**Verify** (four things that must all be true):
+
+```bash
+systemctl --user status lan-mouse             # active (running), ExecStartPost exited 0/SUCCESS
+ss -tulpn | grep ':4242'                      # UDP 4242 owned by lan-mouse
+journalctl --user -u lan-mouse -n 20          # look for the backends + release bind
+printf '' | timeout 3 lan-mouse -f cli 2>&1 | grep '^client '
+# expected: client 0: 192.168.1.125:4242 (right), ips: [] active: true, dns: {192.168.1.125}
+```
+
+A healthy startup log shows:
+
+- `using config: "/home/eugene/.config/lan-mouse/config.toml"` — right file being read (for globals; see gotcha).
+- `using emulation backend: wlroots` — standard on Hyprland.
+- `using capture backend: layer-shell` — Hyprland does not (yet) implement `org.freedesktop.portal.InputCapture`, so `lan-mouse` falls back from `input-capture-portal` to `layer-shell`. That `WARN input-capture-portal … unavailable` line is **expected on Hyprland and harmless**.
+- `release bind: [KeyLeftCtrl, KeyLeftShift, KeyLeftMeta, KeyLeftAlt]` — after the cursor crosses, **press `Ctrl + Shift + Super + Alt`** to pull it back.
+
+**Troubleshooting (copy-pasteable):**
+
+| Symptom | Check | Fix |
+| --- | --- | --- |
+| Cursor does not cross off the right edge | `ps -ef \| grep lan-mouse` on **this** host | Start the daemon: `systemctl --user start lan-mouse`. Without it there is no capture side. |
+| Daemon is up but still nothing crosses | `printf '' \| timeout 3 lan-mouse -f cli \| grep '^client '` | If empty or `active: false` → `ExecStartPost` didn't run. Run `~/.local/bin/lan-mouse-apply-clients` manually, or `systemctl --user restart lan-mouse`. |
+| This side OK, cursor arrives but remote ignores it | On the remote: `ss -tulpn \| grep 4242` and `sudo ufw status` | Start `lan-mouse --daemon` on the remote, register **this** host there (`connect left 192.168.1.112 4242` → `activate 0`), and confirm 4242/tcp + 4242/udp open (already open on `.125`). |
+| Closing the GUI kills crossing | `systemctl --user status lan-mouse` | GUI and daemon are the **same** process if you run plain `lan-mouse`. Use the service above, then use the GUI only for tweaks. |
+| Moving the mouse around does nothing even with service active | `journalctl --user -u lan-mouse -f` while you move | If you see `input-capture-portal … unavailable` **and nothing else**, fall-back backend didn't load — try `--capture-backend layer-shell` or `--capture-backend x11` in `ExecStart=`. |
+
+**Revert:**
+
+```bash
+systemctl --user disable --now lan-mouse.service
+rm ~/.config/systemd/user/lan-mouse.service ~/.local/bin/lan-mouse-apply-clients
+systemctl --user daemon-reload
+```
 
 #### Adding another machine to the right
 
-Lan Mouse lets a host hold **one neighbour per edge** (`left`, `right`, `top`, `bottom`)—`.112` already uses **`right`** for `.125`. To extend the chain so a **third** Omarchy box (call it `192.168.1.130`) sits **further right**, put it on the **right edge of `.125`** (and mirror it back). The cursor then travels `.112` → `.125` → `.130` and back.
+Lan Mouse lets a host hold **one neighbour per edge** (`left`, `right`, `top`, `bottom`) — `.112` already uses **`right`** for `.125`. To extend the chain so a **third** Omarchy box (call it `192.168.1.130`) sits **further right**, register it on the **right edge of `.125`** (and mirror `.125` on the new host's left). The cursor then travels `.112` → `.125` → `.130` and back.
 
-**1. On `192.168.1.125`** — append a right neighbour pointing at the new host (keep the existing `[client.left]` block untouched):
+Remember (previous section): on v0.10.x the TOML is documentation, the **live client list comes from `connect` + `activate`**. Keep the TOML in sync for readability *and* encode the same calls in each box's `lan-mouse-apply-clients` helper.
+
+**1. On `192.168.1.125`** — `.125` already has `.112` wired on its **left**; add `.130` as a **second** client on the **right**:
 
 ```toml
+# ~/.config/lan-mouse/config.toml  (documentation only; globals live at the top of the file)
 [client.left]
   hostname = "192.168.1.112"
   port = 4242
@@ -381,29 +517,42 @@ Lan Mouse lets a host hold **one neighbour per edge** (`left`, `right`, `top`, `
   pos = "right"
 ```
 
-**2. On `192.168.1.130`** (the new host) — install Lan Mouse, then mirror `.125` as the **left** neighbour:
+```bash
+# ~/.local/bin/lan-mouse-apply-clients on .125
+printf 'connect left 192.168.1.112 4242\nactivate 0\nconnect right 192.168.1.130 4242\nactivate 1\n' \
+  | /usr/bin/lan-mouse -f cli >/dev/null 2>&1 || true
+```
+
+(Clients get sequential IDs as they're `connect`-ed — `0` for the first line, `1` for the second. `activate <id>` flips each one on.)
+
+**2. On `192.168.1.130`** (the new host) — install Lan Mouse, open the port, install the service + helper (same as [Running the daemon](#running-the-daemon-not-just-the-ui)), and wire `.125` as the **left** neighbour:
 
 ```toml
+# ~/.config/lan-mouse/config.toml
 [client.left]
   hostname = "192.168.1.125"
   port = 4242
   pos = "left"
 ```
 
-**3. Open the port** on the new host (UFW, mirroring [Firewall](#firewall)):
+```bash
+# ~/.local/bin/lan-mouse-apply-clients on .130
+printf 'connect left 192.168.1.125 4242\nactivate 0\n' \
+  | /usr/bin/lan-mouse -f cli >/dev/null 2>&1 || true
+```
 
 ```bash
 sudo ufw allow 4242/tcp
 sudo ufw allow 4242/udp
 ```
 
-**4. Restart Lan Mouse** on `.125` and `.130` (toggle from the tray/UI, or `systemctl --user restart lan-mouse` if you run it as a user service). Test by sliding the cursor off the right edge of `.125`—it should appear on `.130`; coming back, off the left edge of `.130` returns to `.125`, and from there left again to `.112`.
+**3. Apply** by restarting the service on both boxes (`systemctl --user restart lan-mouse`). Confirm with the live-state check: `printf '' | lan-mouse -f cli | grep '^client '` should show each expected neighbour `active: true`. Test by sliding off the right edge of `.125` (→ `.130`), off the left of `.130` (→ `.125`), then off the left of `.125` (→ `.112`).
 
 **Notes**
 
 - Hostnames can be **IPs** (as above) or DNS names; IPs are simplest on a home LAN and survive `mDNS` quirks.
-- `pos` is the edge **on the host you're editing**, not on the neighbour. Mismatched edges (both sides claim `"right"`) will not connect cleanly.
-- To put the new machine **directly to the right of `.112`** instead of chaining, you'd have to **replace** `.112`'s existing `[client.right]` (it's the only `right` slot)—the chained layout above is the natural way to extend the current setup without disturbing `.125`.
+- `pos` on the CLI is the edge **on the host you're editing**, not on the neighbour. Mismatched edges (both sides claim `"right"`) will not connect cleanly.
+- To put the new machine **directly to the right of `.112`** instead of chaining, you'd have to **replace** `.112`'s existing right client (it's the only `right` slot): change the line in `~/.local/bin/lan-mouse-apply-clients` here to point at `.130` and restart the service. Chaining via `.125` is the natural way to extend the current setup without disturbing it.
 
 ### Idle timers (hypridle)
 
@@ -482,6 +631,138 @@ hyprctl dispatch exec -- sh -c 'exec hypridle -v >/tmp/hypridle.log 2>&1'
 tail -f /tmp/hypridle.log
 ```
 
+### Notifications: do-not-disturb on a schedule
+
+**Goal:** silence notifications and mute the browser **17:00 → 08:00 weekdays + all weekend**, then re-enable both **08:00 weekdays**. Manual override via a Waybar moon icon and a Hyprland keybind. Calendar exception **skipped** — see below.
+
+**Components used / built**
+
+| Piece | What it does | Where |
+| --- | --- | --- |
+| **`mako`** | Wayland notification daemon. Already ships a `[mode=do-not-disturb] invisible=true` block in `~/.local/share/omarchy/default/mako/core.ini`, with a clever `notify-send` exception so toggle-confirmation toasts still pop. | Stock Omarchy. |
+| **`custom/notification-silencing-indicator`** | Moon icon already in your Waybar centre; `on-click` runs `omarchy-toggle-notification-silencing`. | Stock Omarchy. |
+| **Moon icon font-size override** *(new)* | Pulled `#custom-notification-silencing-indicator` out of the grouped `font-size: 10px` indicator rule and gave it its own block at **`font-size: 20px`** (`min-width: 20px`, `margin-left: 8px`) so the moon matches the bar's native `*` font-size and the right-side custom icons (see [Waybar font size](#waybar-font-size)). Waybar live-reloads CSS (`reload_style_on_change: true`), no restart needed. | `~/.config/waybar/style.css` (backup at `style.css.bak.<timestamp>`) |
+| **`omarchy-dnd`** *(new)* | Wrapper around `makoctl mode -a/-r do-not-disturb` that **also** mutes / unmutes Chromium-family sink-inputs via `pactl`, refreshes Waybar (`pkill -RTMIN+10 waybar`), and pings `notify-send`. Subcommands `on` / `off` / `toggle` / `status`; idempotent. | `~/.local/bin/omarchy-dnd` |
+| **`omarchy-dnd-on.{service,timer}`** *(new)* | `OnCalendar=Mon..Fri *-*-* 17:00:00`, `Persistent=true`. Calls `omarchy-dnd on`. | `~/.config/systemd/user/` |
+| **`omarchy-dnd-off.{service,timer}`** *(new)* | `OnCalendar=Mon..Fri *-*-* 08:00:00`, `Persistent=true`. Calls `omarchy-dnd off`. | `~/.config/systemd/user/` |
+| Hyprland keybind *(new)* | `bindd = SUPER ALT, N, Toggle DND, exec, ~/.local/bin/omarchy-dnd toggle` | `~/.config/hypr/bindings.conf` |
+
+**Why only two timers cover seven days.** Friday 17:00 turns DND on. The next "off" timer doesn't fire until Monday 08:00. Saturday and Sunday are silent for free. `Persistent=true` means a reboot during off-hours still leaves you in DND on the next start.
+
+**Browser audio mute — what's covered.** When DND turns **on**, `omarchy-dnd` walks `pactl list sink-inputs` and mutes any whose `application.process.binary` is `chromium` / `chrome` / `brave` / `firefox`. When DND turns **off**, those streams are unmuted. **Limitation:** new browser streams that *start while DND is on* are not auto-muted — Chromium typically reuses a single audio process across tabs, so once muted it usually stays muted, but a freshly launched browser would not be. Good enough for "I walked away at 17:00 with YouTube playing"; not a hard guarantee.
+
+**Calendar exception skipped.** `omarchy-launch-webapp` runs Chromium PWAs as `chromium --app=URL`, so **every Chromium PWA notification arrives in mako with the same `App name: Chromium`** — calendar reminders, monitoring alerts, mail, etc. all indistinguishable. A clean `[mode=do-not-disturb app-name=Calendar] invisible=false` rule is therefore not possible without moving the calendar to a non-Chromium app (e.g. `gnome-calendar`, Thunderbird) that registers its own desktop entry. Future journal entry if it bites.
+
+**Manual control** (any time):
+
+| Action | How |
+| --- | --- |
+| **Toggle** DND | Click the moon icon in Waybar **or** press **`SUPER + ALT + N`** **or** run `omarchy-dnd toggle`. |
+| Force on / off | `omarchy-dnd on` / `omarchy-dnd off`. |
+| Read state | `omarchy-dnd status` (prints `on` / `off`). |
+| See next scheduled run | `systemctl --user list-timers omarchy-dnd-*` |
+| Watch what fires | `journalctl --user -u omarchy-dnd-on -u omarchy-dnd-off -f` |
+
+#### Reverting / changing the schedule
+
+**Change the times** — edit the `OnCalendar=` lines and reload. `OnCalendar` accepts `systemd.time(7)` syntax (e.g. `Mon..Fri *-*-* 18:30:00`):
+
+```bash
+sed -i 's/17:00:00/18:30:00/' ~/.config/systemd/user/omarchy-dnd-on.timer
+systemctl --user daemon-reload && systemctl --user restart omarchy-dnd-on.timer
+systemctl --user list-timers omarchy-dnd-*
+```
+
+**Disable temporarily** (timers off, manual control still works):
+
+```bash
+systemctl --user disable --now omarchy-dnd-on.timer omarchy-dnd-off.timer
+```
+
+**Full revert** — remove every file we added, drop the keybind, reload Hyprland:
+
+```bash
+systemctl --user disable --now omarchy-dnd-on.timer omarchy-dnd-off.timer
+rm ~/.config/systemd/user/omarchy-dnd-{on,off}.{service,timer}
+systemctl --user daemon-reload
+rm ~/.local/bin/omarchy-dnd
+sed -i '/omarchy-dnd toggle/,+0d; /Toggle Omarchy do-not-disturb/d' \
+    ~/.config/hypr/bindings.conf
+hyprctl reload
+makoctl mode -r do-not-disturb 2>/dev/null || true
+```
+
+### Notification sounds (mako-sounds)
+
+`mako` itself does not play a per-notification sound — it just surfaces the toast. To get distinct sounds for specific apps and message patterns (Slack channel X, PRTG alerts, Claude replies, etc.) this journal runs a small background daemon, **`mako-sounds`**, that polls `makoctl history` and plays a `.oga` via `pw-play` whenever a new notification appears.
+
+**Pieces**
+
+| Piece | Path |
+| --- | --- |
+| Script | `~/.local/bin/mako-sounds.sh` |
+| systemd unit | `~/.config/systemd/user/mako-sounds.service` (auto-restart on failure, starts with `graphical-session.target`) |
+| **Log file** | **`~/.local/state/mako-sounds/mako-sounds.log`** — see [below](#log-file-location) |
+| Seen-ID state | `~/.local/state/mako-sounds/seen` |
+| Sound assets | `~/.local/share/sounds/*.oga` |
+
+**Rule priority (three tiers, checked per notification):**
+
+1. **`CONTENT_SOUNDS`** — substring match on the notification **message**. Highest priority; this is where Slack channel–specific sounds and "silent" suppressions live (e.g. `"New message in #orders" → coin.oga`).
+2. **`APP_SOUNDS`** — exact match on **App name** from `makoctl` (e.g. `notify-send`, `Chromium`). Fallback when no content rule hits.
+3. **`DEFAULT_SOUND`** — final fallback (currently `default.oga`).
+
+**Common commands**
+
+```bash
+systemctl --user status mako-sounds            # running? last start?
+journalctl --user -u mako-sounds -f            # systemd journal stream
+tail -f ~/.local/state/mako-sounds/mako-sounds.log   # per-notification file log
+systemctl --user restart mako-sounds           # pick up edits to the script
+```
+
+#### Log file location
+
+**`~/.local/state/mako-sounds/mako-sounds.log`** (standardised under `$XDG_STATE_HOME`). Each row is:
+
+```
+[HH:MM:SS] #<mako-id> | <App name> | <message> | <sound-file-or-"silent">
+```
+
+Previously this lived at `/tmp/mako-sounds.log`, which Arch's default `tmpfs /tmp` wipes on every reboot — easy to lose history for months without noticing. The new path survives reboots; the old `/tmp` log was copied over on migration to preserve continuity.
+
+Quick filters:
+
+```bash
+LOG=~/.local/state/mako-sounds/mako-sounds.log
+grep ' | Chromium | '         "$LOG" | tail -20   # all Chromium toasts today
+grep -F '#orders'             "$LOG"              # one Slack channel
+grep -F '| silent$'           "$LOG"              # suppressed by a rule
+awk -F' \\| ' '{print $(NF)}' "$LOG" | sort | uniq -c | sort -rn   # sound-file histogram
+```
+
+#### Editing rules
+
+Edit `~/.local/bin/mako-sounds.sh`. Rules are Bash associative arrays near the top (`APP_SOUNDS`, `CONTENT_SOUNDS`, `DEFAULT_SOUND`). Add `[substring]="some-sound.oga"` or `[substring]="silent"` to `CONTENT_SOUNDS` for new patterns. After editing, restart the service so the new rules are live:
+
+```bash
+systemctl --user restart mako-sounds
+```
+
+The `seen` file means past notifications are **not** replayed after restart — only new ones trigger sounds.
+
+#### Reverting mako-sounds
+
+```bash
+systemctl --user disable --now mako-sounds.service
+rm ~/.config/systemd/user/mako-sounds.service
+systemctl --user daemon-reload
+
+# Script itself stays at ~/.local/bin/mako-sounds.sh — you can still run it
+# manually via: nohup ~/.local/bin/mako-sounds.sh & disown
+# (before-rewrite copy: ~/.local/bin/mako-sounds.sh.bak.<timestamp>)
+```
+
 ## Journal changelog
 
 | Date | Entry |
@@ -511,3 +792,9 @@ tail -f /tmp/hypridle.log
 | 2026-04-21 | [Lan Mouse](#lan-mouse): documented current `.112` ↔ `.125` `left`/`right` setup; [Adding another machine to the right](#adding-another-machine-to-the-right) chains a third host via `.125`. |
 | 2026-04-21 | [Idle timers (hypridle)](#idle-timers-hypridle): inventory of `~/.config/hypr/hypridle.conf` listeners; **screensaver at 60 s verified** (edit + `pkill hypridle && hyprctl dispatch exec hypridle`); DPMS-off at 120 s **did not fire** — investigation pending. |
 | 2026-04-21 | [Idle timers (hypridle)](#idle-timers-hypridle): experiment reverted → **stock values kept** (DPMS `330 s` / **5.5 min**, screensaver `900 s` / **15 min**). [DPMS vs screensaver](#dpms-vs-screensaver): DPMS = hardware monitor off; screensaver = userland fullscreen `tte` terminal. **Ordering gotcha** — inverting to screensaver-first blocks the later DPMS `Idled` event (reproduced with `hypridle -v`); keep DPMS short and screensaver long. |
+| 2026-04-21 | [Installing programs → exfatprogs](#exfatprogs): `sudo pacman -S exfatprogs` for cross-platform exFAT (Linux/Windows/macOS) USB/SD use; verified `1.3.2-1` on **`.112`** and **`.125`**. |
+| 2026-04-21 | [Notifications: do-not-disturb on a schedule](#notifications-do-not-disturb-on-a-schedule): new `omarchy-dnd` wrapper + two `systemd --user` timers (`Mon..Fri 17:00 → on`, `Mon..Fri 08:00 → off`, weekends covered for free); reuses Omarchy's stock mako `[mode=do-not-disturb]` and Waybar moon indicator; new keybind **`SUPER + ALT + N`**; mutes Chromium-family browser sink-inputs while DND is on. **Calendar exception skipped** (every Chromium PWA notification reports `App name: Chromium` so no clean rule). |
+| 2026-04-22 | [Notifications: do-not-disturb on a schedule](#notifications-do-not-disturb-on-a-schedule): enlarged the Waybar moon icon — split `#custom-notification-silencing-indicator` out of the `font-size: 10px` indicator group into its own block at `font-size: 20px` to match the bar's native `*` size (and the right-side custom icons documented in [Waybar font size](#waybar-font-size)). |
+| 2026-04-22 | [Notification sounds (mako-sounds)](#notification-sounds-mako-sounds): daemonised `~/.local/bin/mako-sounds.sh` as `mako-sounds.service` (`Restart=on-failure`, `After=graphical-session.target`); state + log moved from `/tmp` (wiped on reboot) to **`~/.local/state/mako-sounds/`** (`mako-sounds.log`, `seen`); old `/tmp` log preserved by copy; rewrote `tee` path to rely on systemd's `StandardOutput=append:` instead. Service confirmed `active (running)` at 07:27 SAST. |
+| 2026-04-22 | [Lan Mouse → Running the daemon (not just the UI)](#running-the-daemon-not-just-the-ui): plain `lan-mouse` runs GUI + daemon in one process — closing the window stopped cursor crossing. Packaged Arch build ships no user service. Added `~/.config/systemd/user/lan-mouse.service` (`ExecStart=/usr/bin/lan-mouse --daemon`, `Restart=on-failure`, `After=graphical-session.target`); `active (running)`, UDP `4242` bound. Noted Hyprland falls back from `input-capture-portal` to `layer-shell` (expected). Release combo **`Ctrl+Shift+Super+Alt`**. |
+| 2026-04-22 | [Lan Mouse](#lan-mouse): discovered that on `lan-mouse 0.10.0` the `[client.*]` blocks in `~/.config/lan-mouse/config.toml` are **not** loaded as live peers — CLI REPL returned `no such client: 0` on a fresh daemon. Neighbours must be registered via `connect <edge> <host> <port>` + `activate <id>` (CLI control socket or GUI "Add client"). Added `~/.local/bin/lan-mouse-apply-clients` (pipes those two lines into `lan-mouse -f cli`) and wired it as `ExecStartPost=` on `lan-mouse.service`, so the right-edge peer `192.168.1.125:4242` survives daemon / reboot cycles. Post-start CLI check now reports `client 0: 192.168.1.125:4242 (right), active: true`. Rewrote Lan Mouse section (gotcha box, troubleshooting row, adding-another-machine flow) and left `config.toml` as documentation only with a header comment. |

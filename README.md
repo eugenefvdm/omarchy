@@ -143,6 +143,7 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
 - [Additional programs](#additional-programs)
 - [Chromium](#chromium)
   - [New setups: Services, Chromium account, and profiles](#new-setups-services-chromium-account-and-profiles)
+  - [Audio troubleshooting (no sound after reboot)](#audio-troubleshooting-no-sound-after-reboot)
 - [About application icons in the Waybar](#about-application-icons-in-the-waybar)
 - [Waybar tray expander](#waybar-tray-expander)
 - [Waybar font size](#waybar-font-size)
@@ -358,6 +359,68 @@ On a **fresh** Omarchy machine, work through **Services** in the Omarchy flow (e
 After **Chromium Account** is installed, open Chromium and use the **profile** menu to **Add** extra **Chromium profiles** (work, personal, client, …). Extensions (including **1Password** in the next paragraph) are **per profile**, so separate profiles keep logins and extensions apart.
 
 **Remember:** install the **[1Password](https://chromewebstore.google.com/detail/1password/aeblfdkhhhdcdjpifhhbdiojplfjncoa)** extension in **Chromium** (Chrome Web Store; Chromium supports the same extension). The store may warn that you should use **Chrome**—you can **ignore that** for Chromium.
+
+#### Audio troubleshooting (no sound after reboot)
+
+If YouTube/Chromium is playing but you hear nothing, this quick flow restores routing on Omarchy (PipeWire/WirePlumber):
+
+1. Restart the user audio stack:
+
+```bash
+systemctl --user restart wireplumber pipewire pipewire-pulse
+```
+
+2. Inspect current sink IDs and Chromium stream IDs:
+
+```bash
+wpctl status
+pactl list short sink-inputs
+```
+
+3. Route Chromium to the target sink and unmute both sink + stream.
+
+Soundcore example (replace IDs as needed):
+
+```bash
+wpctl set-default 102
+wpctl set-mute 102 0
+wpctl set-volume 102 1.0
+pactl move-sink-input 87 102
+pactl set-sink-input-mute 87 0
+pactl set-sink-input-volume 87 100%
+```
+
+Jabra example:
+
+```bash
+wpctl set-default 60
+wpctl set-mute 60 0
+wpctl set-volume 60 1.0
+pactl move-sink-input 87 60
+pactl set-sink-input-mute 87 0
+pactl set-sink-input-volume 87 100%
+```
+
+4. If Bluetooth sink disappears, restart bluetooth and reconnect:
+
+```bash
+sudo systemctl restart bluetooth
+bluetoothctl connect 3C:39:E7:B7:54:84
+```
+
+Notes:
+- In `wpctl status`, `*` marks the current default sink.
+- Chromium may stay attached to an old route until `pactl move-sink-input` is run.
+- If `Settings -> Default Configured Devices` references an old `bluez_output...`, set a fresh default with `wpctl set-default <sink-id>`.
+
+Single-command helper (from this repo):
+
+```bash
+./scripts/audio-route.sh soundcore
+./scripts/audio-route.sh jabra
+```
+
+Optional: add `--restart-audio` to restart WirePlumber/PipeWire first.
 
 ### About application icons in the Waybar
 
@@ -873,4 +936,6 @@ systemctl --user daemon-reload
 | 2026-04-22 | [Lan Mouse → Running the daemon (not just the UI)](#running-the-daemon-not-just-the-ui): plain `lan-mouse` runs GUI + daemon in one process — closing the window stopped cursor crossing. Packaged Arch build ships no user service. Added `~/.config/systemd/user/lan-mouse.service` (`ExecStart=/usr/bin/lan-mouse --daemon`, `Restart=on-failure`, `After=graphical-session.target`); `active (running)`, UDP `4242` bound. Noted Hyprland falls back from `input-capture-portal` to `layer-shell` (expected). Release combo **`Ctrl+Shift+Super+Alt`**. |
 | 2026-04-22 | [Lan Mouse](#lan-mouse): discovered that on `lan-mouse 0.10.0` the `[client.*]` blocks in `~/.config/lan-mouse/config.toml` are **not** loaded as live peers — CLI REPL returned `no such client: 0` on a fresh daemon. Neighbours must be registered via `connect <edge> <host> <port>` + `activate <id>` (CLI control socket or GUI "Add client"). Added `~/.local/bin/lan-mouse-apply-clients` (pipes those two lines into `lan-mouse -f cli`) and wired it as `ExecStartPost=` on `lan-mouse.service`, so the right-edge peer `192.168.1.202:4242` survives daemon / reboot cycles. Post-start CLI check now reports `client 0: 192.168.1.202:4242 (right), active: true`. Rewrote Lan Mouse section (gotcha box, troubleshooting row, adding-another-machine flow) and left `config.toml` as documentation only with a header comment. |
 | 2026-04-22 | [Installing programs → TablePlus (ARM64 AppImage)](#tableplus-arm64-appimage): downloaded upstream ARM64 AppImage, made it executable, and confirmed TablePlus launches successfully on-screen on this AARCH64 machine. |
+| 2026-04-22 | [Chromium → Audio troubleshooting](#audio-troubleshooting-no-sound-after-reboot): added a short no-audio-after-reboot playbook for PipeWire/WirePlumber with `wpctl` + `pactl` routing, sink/stream unmute, and Bluetooth recovery (`systemctl restart bluetooth` + reconnect). |
+| 2026-04-22 | Added `scripts/audio-route.sh` to switch audio output in one command (`soundcore` / `jabra`), set default sink, unmute/set volume, and move active sink-input streams. |
 # omarchy

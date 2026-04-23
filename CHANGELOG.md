@@ -1,5 +1,9 @@
 # Change Log
 
+## 2026-04-23
+
+- docs: add screen sharing fix, workspace 6 guide, and Valet 502 recovery to README
+
 ## 2026-04-22
 
 - chore: add Cursor skills, MCP config, and AGENTS.md with updated test formatting

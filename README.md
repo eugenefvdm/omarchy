@@ -144,6 +144,9 @@ Requires **SSH keys** (or your usual auth). Extend the scripts as this journal g
 - [Chromium](#chromium)
   - [New setups: Services, Chromium account, and profiles](#new-setups-services-chromium-account-and-profiles)
   - [Audio troubleshooting (no sound after reboot)](#audio-troubleshooting-no-sound-after-reboot)
+- [Screen sharing on Omarchy (Arch Linux ARM64 / Hyprland)](#screen-sharing-on-omarchy-arch-linux-arm64--hyprland)
+  - [What was tried and why it failed](#what-was-tried-and-why-it-failed)
+  - [What fixed it](#what-fixed-it)
 - [About application icons in the Waybar](#about-application-icons-in-the-waybar)
 - [Waybar tray expander](#waybar-tray-expander)
 - [Waybar font size](#waybar-font-size)
@@ -422,6 +425,49 @@ Single-command helper (from this repo):
 
 Optional: add `--restart-audio` to restart WirePlumber/PipeWire first.
 
+### Screen sharing on Omarchy (Arch Linux ARM64 / Hyprland)
+
+**Problem:** full-screen sharing was broken across **RustDesk**, **AnyDesk**, and **Google Meet**.
+
+**Root cause:** `hyprland-share-picker` crashed with a **bus error (SIGBUS)** on ARM64. Since that picker sits in the portal path for screen capture, all portal-based sharing flows failed.
+
+#### What was tried and why it failed
+
+- **AnyDesk:** `display_server_not_supported` (cannot capture a Wayland desktop in this setup).  
+  `GDK_SCALE=1 WAYLAND_DISPLAY= anydesk` fixed UI scaling only, not capture.
+- **RustDesk:** service and app were running, but capture still depended on the same crashing portal path.
+- **Google Meet (Chromium):** selecting **Window** or **Entire Screen** snapped back to **Chromium Tab** because the picker crashed before returning a result.
+
+#### What fixed it
+
+Route `ScreenCast` and `Screenshot` to the **wlr portal backend** and keep everything else on Hyprland/GTK defaults.
+
+1) Install `xdg-desktop-portal-wlr` (mirror refresh done first):
+
+```bash
+sudo pacman -Sy xdg-desktop-portal-wlr
+```
+
+2) Create `~/.config/xdg-desktop-portal/portals.conf`:
+
+```ini
+[preferred]
+default=hyprland;gtk
+org.freedesktop.impl.portal.ScreenCast=wlr
+org.freedesktop.impl.portal.Screenshot=wlr
+```
+
+3) Restart user portal services:
+
+```bash
+systemctl --user restart \
+  xdg-desktop-portal \
+  xdg-desktop-portal-hyprland \
+  xdg-desktop-portal-wlr
+```
+
+`xdg-desktop-portal-wlr` uses **slurp + grim** for selection/capture (already installed on this machine), which works correctly on ARM64. Hyprland-specific and GTK portals remain in place for non-screencast portal calls.
+
 ### About application icons in the Waybar
 
 **Waybar** is a **status bar** for **Wayland** sessions (Omarchy’s desktop uses it with the compositor—clock, workspaces, tray area, and similar widgets along the edge of the screen).
@@ -691,6 +737,14 @@ sudo ufw allow 4242/udp
 - `pos` on the CLI is the edge **on the host you're editing**, not on the neighbour. Mismatched edges (both sides claim `"right"`) will not connect cleanly.
 - To put the new machine **directly to the right of `.112`** instead of chaining, you'd have to **replace** `.112`'s existing right client (it's the only `right` slot): change the line in `~/.local/bin/lan-mouse-apply-clients` here to point at `.130` and restart the service. Chaining via `.125` is the natural way to extend the current setup without disturbing it.
 
+### Workspace 6 in Omarchy
+
+You already have workspace 6 available in Omarchy by default.
+
+Switch to it with Super + 6
+Move the current window to it with Super + Shift + 6
+If you want 6 to always show in Waybar (even when empty), add this in ~/.config/waybar/config.jsonc under hyprland/workspaces → persistent-workspaces:
+
 ### Idle timers (hypridle)
 
 Omarchy runs **[`hypridle`](https://wiki.hypr.land/Hypr-Ecosystem/hypridle/)** to react to **idle time** (no keyboard / pointer input). Config: **`~/.config/hypr/hypridle.conf`**; started from **`~/.config/hypr/autostart.conf`**. Each `listener { … }` block has a `timeout` in **seconds** and an `on-timeout` command; timers count from the **last input**.
@@ -938,4 +992,7 @@ systemctl --user daemon-reload
 | 2026-04-22 | [Installing programs → TablePlus (ARM64 AppImage)](#tableplus-arm64-appimage): downloaded upstream ARM64 AppImage, made it executable, and confirmed TablePlus launches successfully on-screen on this AARCH64 machine. |
 | 2026-04-22 | [Chromium → Audio troubleshooting](#audio-troubleshooting-no-sound-after-reboot): added a short no-audio-after-reboot playbook for PipeWire/WirePlumber with `wpctl` + `pactl` routing, sink/stream unmute, and Bluetooth recovery (`systemctl restart bluetooth` + reconnect). |
 | 2026-04-22 | Added `scripts/audio-route.sh` to switch audio output in one command (`soundcore` / `jabra`), set default sink, unmute/set volume, and move active sink-input streams. |
+| 2026-04-23 | Valet 502 after reboot: fixed by restoring ownership and reinstalling Valet config/services: `sudo chown -R "$USER:$USER" ~/.config/valet ~/.config/composer && valet install && valet restart`. |
+| 2026-04-23 | [Workspace 6 in Omarchy](#workspace-6-in-omarchy): documented default workspace 6 shortcuts and where to add Waybar `persistent-workspaces` for `6`. |
+| 2026-04-23 | [Screen sharing on Omarchy (Arch Linux ARM64 / Hyprland)](#screen-sharing-on-omarchy-arch-linux-arm64--hyprland): full-screen sharing fixed for RustDesk, AnyDesk, and Google Meet by installing `xdg-desktop-portal-wlr`, forcing `ScreenCast`/`Screenshot` to `wlr` in `~/.config/xdg-desktop-portal/portals.conf`, and restarting user portal services after `hyprland-share-picker` SIGBUS crashes on ARM64. |
 # omarchy
